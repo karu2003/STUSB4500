@@ -6,16 +6,16 @@ import re
 import platform
 import os
 
-from .stusb4500_types import (
-    Version,
-    PortStatus,
-    PDO_Contract,
-    PdoSinkFix,
-    PdoSinkVar,
-    PdoSinkBat,
-    Rdo,
-    Vbus,
-)
+# from stusb4500_types import (
+#     Version,
+#     PortStatus,
+#     PDO_Contract,
+#     PdoSinkFix,
+#     PdoSinkVar,
+#     PdoSinkBat,
+#     Rdo,
+#     Vbus,
+# )
 
 
 class STUSB4500:
