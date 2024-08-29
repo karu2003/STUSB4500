@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 from time import sleep
 from collections import namedtuple
-from smbus import SMBus
-import RPi.GPIO as gpio
+import subprocess
+import re
+import platform
+import os
 
 
 class STUSB4500:
@@ -11,21 +13,68 @@ class STUSB4500:
     :type address: int
     """
 
-    def __init__(self, bus, address=0x28, reset_pin=4):
-
-        from smbus import SMBus
-        import RPi.GPIO as gpio
-
-        gpio.setwarnings(False)
-
-        gpio.setmode(gpio.BCM)
-        gpio.setup(reset_pin, gpio.OUT)
+    def __init__(self, bus=None, address=0x28, reset_pin=4):
 
         self.addr = address
-        self.bus = SMBus(bus)
-        self.gpio = gpio
+        self.bus = bus
         self.reset_pin = reset_pin
+        self.where = platform.system()
         self.config = None
+
+        self._initialize_bus()
+        self._initialize_gpio()
+
+    def _initialize_bus(self):
+        """Initializes the I2C bus based on the platform."""
+        try:
+            if self.where == "Linux":
+                if "raspberrypi" in platform.uname().machine.lower():
+                    if self.bus is not None:
+                        i2c_bus_number = self.bus
+                    else:
+                        i2c_bus_number = 1  # I2C bus number for Raspberry Pi
+                    # print("Detected Raspberry Pi, using I2C bus 1")  # Debug output
+                else:
+                    p = subprocess.Popen(["i2cdetect", "-l"], stdout=subprocess.PIPE)
+                    i2c_bus_number = None
+                    for line in p.stdout:
+                        line = line.decode("utf-8")
+                        if "i2c-tiny-usb" in line:
+                            match = re.search(r"i2c-(\d+)", line)
+                            if match:
+                                i2c_bus_number = int(match.group(1))
+                                # print(f"Found i2c-tiny-usb on bus: {i2c_bus_number}")
+                                break
+                import smbus
+                self.bus = smbus.SMBus(i2c_bus_number)
+
+            elif self.where == "Windows":
+                from i2c_mp_usb import I2C_MP_USB as SMBus
+                self.bus = SMBus()
+            else:
+                raise EnvironmentError("Platform not supported for this script.")
+        except Exception as e:
+            print(f"Failed to initialize I2C bus: {e}")
+
+    def _initialize_gpio(self):
+        """Initializes GPIO if running on a Raspberry Pi."""
+        if self.is_raspberry_pi():
+            try:
+                import RPi.GPIO as gpio
+
+                gpio.setwarnings(False)
+                gpio.setmode(gpio.BCM)
+                gpio.setup(self.reset_pin, gpio.OUT)
+                self.gpio = gpio
+                self.reset_pin = reset_pin
+            except ImportError:
+                print(
+                    "RPi.GPIO module not found, please install it to use GPIO functions."
+                )
+
+    def is_raspberry_pi(self):
+        """Checks if the current platform is a Raspberry Pi."""
+        return os.path.exists("/proc/device-tree/model")
 
     def __read_byte(self, reg):
         return self.bus.read_byte_data(self.addr, reg)
@@ -34,9 +83,9 @@ class STUSB4500:
         return self.bus.write_byte_data(self.addr, reg, data)
 
     def hard_reset(self):
-        gpio.output(self.reset_pin, self.gpio.HIGH)
+        self.gpio.output(self.reset_pin, self.gpio.HIGH)
         sleep(0.2)
-        gpio.output(self.reset_pin, self.gpio.LOW)
+        self.gpio.output(self.reset_pin, self.gpio.LOW)
 
     # 	\brief Reads typec revision and usbpd revision of the chip
     def version(self):
@@ -1178,24 +1227,25 @@ class STUSB4500:
         self.config[4][6] &= 0xEF
         self.config[4][6] |= value << 4
 
+def main():
+    addr = 0x28
+    reset_pin = 4
+    PD = STUSB4500()
+    print(PD.read_rdo())
+    PD.print_pdo()
+    print(PD.active_contract())
+    PD.nvm_dump()
+    PD.set_voltage(2, 9.0)
+    PD.set_current(2, 1.5)
+    PD.set_voltage(3, 9.0)
+    PD.set_current(3, 1.5)
+    PD.nvm_write()
+    print(PD.read_rdo())
 
-addr = 0x28  # I2C Address of the chip
-reset_pin = 4
-
-PD = STUSB4500(1, address=addr, reset_pin=reset_pin)
-
-print(PD.read_rdo())
-PD.print_pdo()
-print(PD.active_contract())
-PD.nvm_dump()
-PD.set_voltage(2, 9.0)
-PD.set_current(2, 1.5)
-PD.set_voltage(3, 9.0)
-PD.set_current(3, 1.5)
-PD.nvm_write()
-print(PD.read_rdo())
+    # PDO#1:  PdoSink(voltage=5.0V, current=3.0A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=1, unconstrainedPower=1, higherCapability=1, dualRolePower=0, supply=Fixed)
+    # PDO#2:  PdoSink(voltage=9.0V, current=2.0A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=0, unconstrainedPower=0, higherCapability=0, dualRolePower=0, supply=Fixed)
+    # PDO#3:  PdoSink(voltage=12.0V, current=1.5A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=0, unconstrainedPower=0, higherCapability=0, dualRolePower=0, supply=Fixed)
 
 
-# PDO#1:  PdoSink(voltage=5.0V, current=3.0A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=1, unconstrainedPower=1, higherCapability=1, dualRolePower=0, supply=Fixed)
-# PDO#2:  PdoSink(voltage=9.0V, current=2.0A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=0, unconstrainedPower=0, higherCapability=0, dualRolePower=0, supply=Fixed)
-# PDO#3:  PdoSink(voltage=12.0V, current=1.5A, fastRoleReqCur=0, dualRoleData=0, usbCommunicationsCapable=0, unconstrainedPower=0, higherCapability=0, dualRolePower=0, supply=Fixed)
+if __name__ == "__main__":
+    main()
