@@ -6,6 +6,17 @@ import re
 import platform
 import os
 
+from .stusb4500_types import (
+    Version,
+    PortStatus,
+    PDO_Contract,
+    PdoSinkFix,
+    PdoSinkVar,
+    PdoSinkBat,
+    Rdo,
+    Vbus,
+)
+
 
 class STUSB4500:
     """Check the STUSB4500
@@ -30,6 +41,7 @@ class STUSB4500:
                 self.bus = self._initialize_linux_bus()
             elif self.where == "Windows":
                 from i2c_mp_usb import I2C_MP_USB as SMBus
+
                 self.bus = SMBus()
             else:
                 raise EnvironmentError("Платформа не поддерживается.")
@@ -38,11 +50,14 @@ class STUSB4500:
 
     def _initialize_linux_bus(self):
         import smbus
+
         """Инициализация I2C шины для Linux."""
         if "raspberrypi" in platform.uname().machine.lower():
-            return smbus.SMBus(self.bus or 1)  # I2C bus номер 1 для Raspberry Pi по умолчанию
+            return smbus.SMBus(
+                self.bus or 1
+            )  # I2C bus номер 1 для Raspberry Pi по умолчанию
         return smbus.SMBus(self._detect_i2c_bus())
-    
+
     def _detect_i2c_bus(self):
         """Определение I2C шины для устройств на Linux."""
         try:
@@ -62,6 +77,7 @@ class STUSB4500:
         if self.is_raspberry_pi():
             try:
                 import RPi.GPIO as gpio
+
                 gpio.setwarnings(False)
                 gpio.setmode(gpio.BCM)
                 gpio.setup(self.reset_pin, gpio.OUT)
