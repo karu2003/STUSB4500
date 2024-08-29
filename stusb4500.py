@@ -14,7 +14,6 @@ class STUSB4500:
     """
 
     def __init__(self, bus=None, address=0x28, reset_pin=4):
-
         self.addr = address
         self.bus = bus
         self.reset_pin = reset_pin
@@ -25,55 +24,53 @@ class STUSB4500:
         self._initialize_gpio()
 
     def _initialize_bus(self):
-        """Initializes the I2C bus based on the platform."""
+        """Инициализация I2C шины в зависимости от платформы."""
         try:
             if self.where == "Linux":
-                if "raspberrypi" in platform.uname().machine.lower():
-                    if self.bus is not None:
-                        i2c_bus_number = self.bus
-                    else:
-                        i2c_bus_number = 1  # I2C bus number for Raspberry Pi
-                    # print("Detected Raspberry Pi, using I2C bus 1")  # Debug output
-                else:
-                    p = subprocess.Popen(["i2cdetect", "-l"], stdout=subprocess.PIPE)
-                    i2c_bus_number = None
-                    for line in p.stdout:
-                        line = line.decode("utf-8")
-                        if "i2c-tiny-usb" in line:
-                            match = re.search(r"i2c-(\d+)", line)
-                            if match:
-                                i2c_bus_number = int(match.group(1))
-                                # print(f"Found i2c-tiny-usb on bus: {i2c_bus_number}")
-                                break
-                import smbus
-                self.bus = smbus.SMBus(i2c_bus_number)
-
+                self.bus = self._initialize_linux_bus()
             elif self.where == "Windows":
                 from i2c_mp_usb import I2C_MP_USB as SMBus
                 self.bus = SMBus()
             else:
-                raise EnvironmentError("Platform not supported for this script.")
+                raise EnvironmentError("Платформа не поддерживается.")
         except Exception as e:
-            print(f"Failed to initialize I2C bus: {e}")
+            print(f"Ошибка инициализации I2C шины: {e}")
+
+    def _initialize_linux_bus(self):
+        import smbus
+        """Инициализация I2C шины для Linux."""
+        if "raspberrypi" in platform.uname().machine.lower():
+            return smbus.SMBus(self.bus or 1)  # I2C bus номер 1 для Raspberry Pi по умолчанию
+        return smbus.SMBus(self._detect_i2c_bus())
+    
+    def _detect_i2c_bus(self):
+        """Определение I2C шины для устройств на Linux."""
+        try:
+            p = subprocess.Popen(["i2cdetect", "-l"], stdout=subprocess.PIPE)
+            for line in p.stdout:
+                line = line.decode("utf-8")
+                if "i2c-tiny-usb" in line:
+                    match = re.search(r"i2c-(\d+)", line)
+                    if match:
+                        return int(match.group(1))
+        except subprocess.SubprocessError as e:
+            print(f"Ошибка определения I2C шины: {e}")
+        return None
 
     def _initialize_gpio(self):
-        """Initializes GPIO if running on a Raspberry Pi."""
+        """Инициализация GPIO для Raspberry Pi."""
         if self.is_raspberry_pi():
             try:
                 import RPi.GPIO as gpio
-
                 gpio.setwarnings(False)
                 gpio.setmode(gpio.BCM)
                 gpio.setup(self.reset_pin, gpio.OUT)
                 self.gpio = gpio
-                self.reset_pin = reset_pin
             except ImportError:
-                print(
-                    "RPi.GPIO module not found, please install it to use GPIO functions."
-                )
+                print("Модуль RPi.GPIO не установлен.")
 
     def is_raspberry_pi(self):
-        """Checks if the current platform is a Raspberry Pi."""
+        """Проверка, является ли текущая платформа Raspberry Pi."""
         return os.path.exists("/proc/device-tree/model")
 
     def __read_byte(self, reg):
@@ -163,7 +160,7 @@ class STUSB4500:
     # 	\brief Forces to use another PDO contract
     # 	The STUSB4500 offers 3 PDO contracts and take effect after a soft reset
     # 	\param newValue: New contract PDO1, PDO2 or PDO3
-    def set_active_contract(newValue):
+    def set_active_contract(self, newValue):
         # this is the active pdo contract. This takes effect after a sw reset (if source has the capability of the configured pdo)
         if newValue >= 0 and newValue < 4:
             return self.__write_byte(0x70, newValue)
@@ -1227,6 +1224,7 @@ class STUSB4500:
         self.config[4][6] &= 0xEF
         self.config[4][6] |= value << 4
 
+
 def main():
     addr = 0x28
     reset_pin = 4
@@ -1239,6 +1237,8 @@ def main():
     PD.set_current(2, 1.5)
     PD.set_voltage(3, 9.0)
     PD.set_current(3, 1.5)
+    # PD.set_active_contract(2)
+    # PD.set_pdo_number(2)
     PD.nvm_write()
     print(PD.read_rdo())
 
